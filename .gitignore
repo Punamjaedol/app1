@@ -1,0 +1,19 @@
+# Environments
+.venv/
+venv/
+ENV/
+env/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Database
+*.db
+couple_app.db
+
+# OS files
+.DS_Store
+Thumbs.db
