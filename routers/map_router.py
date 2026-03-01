@@ -27,7 +27,7 @@ def calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
     return R * c
 
 @router.post("/location")
-async def update_location(data: LocationData):
+async def update_location(data: LocationData, couple_id: str):
     """
     Receives current GPS coordinates and checks Dwell Time.
     """
@@ -37,7 +37,7 @@ async def update_location(data: LocationData):
     conn = database.get_db()
     cursor = conn.cursor()
     
-    cursor.execute("SELECT * FROM tracking_sessions WHERE is_active = 1 ORDER BY id DESC LIMIT 1")
+    cursor.execute("SELECT * FROM tracking_sessions WHERE is_active = 1 AND couple_id = ? ORDER BY id DESC LIMIT 1", (couple_id,))
     session = cursor.fetchone()
     
     response_msg = "Location updated."
@@ -45,9 +45,9 @@ async def update_location(data: LocationData):
     
     if not session:
         cursor.execute('''
-            INSERT INTO tracking_sessions (start_lat, start_lng, start_time, last_update_time, is_active)
-            VALUES (?, ?, ?, ?, 1)
-        ''', (data.lat, data.lng, now_str, now_str))
+            INSERT INTO tracking_sessions (start_lat, start_lng, start_time, last_update_time, is_active, couple_id)
+            VALUES (?, ?, ?, ?, 1, ?)
+        ''', (data.lat, data.lng, now_str, now_str, couple_id))
         response_msg = "Started new tracking session."
     else:
         dist = calculate_distance(data.lat, data.lng, session["start_lat"], session["start_lng"])
@@ -57,16 +57,16 @@ async def update_location(data: LocationData):
         if dist > 50:
             cursor.execute("UPDATE tracking_sessions SET is_active = 0 WHERE id = ?", (session["id"],))
             cursor.execute('''
-                INSERT INTO tracking_sessions (start_lat, start_lng, start_time, last_update_time, is_active)
-                VALUES (?, ?, ?, ?, 1)
-            ''', (data.lat, data.lng, now_str, now_str))
+                INSERT INTO tracking_sessions (start_lat, start_lng, start_time, last_update_time, is_active, couple_id)
+                VALUES (?, ?, ?, ?, 1, ?)
+            ''', (data.lat, data.lng, now_str, now_str, couple_id))
             
             response_msg = f"User moved {dist:.1f}m. Tracking reset."
         else:
             if time_diff >= 10:
                 name, addr = await reverse_geocode_kakao(session["start_lat"], session["start_lng"])
                 
-                cursor.execute("SELECT name FROM places ORDER BY timestamp DESC LIMIT 1")
+                cursor.execute("SELECT name FROM places WHERE couple_id = ? ORDER BY timestamp DESC LIMIT 1", (couple_id,))
                 last_place = cursor.fetchone()
                 
                 cursor.execute("UPDATE tracking_sessions SET is_active = 0 WHERE id = ?", (session["id"],))
@@ -76,9 +76,9 @@ async def update_location(data: LocationData):
                 else:
                     place_id = "p" + str(uuid.uuid4())[:8]
                     cursor.execute('''
-                        INSERT INTO places (id, name, lat, lng, timestamp)
-                        VALUES (?, ?, ?, ?, ?)
-                    ''', (place_id, name, session["start_lat"], session["start_lng"], now_str))
+                        INSERT INTO places (id, name, lat, lng, timestamp, couple_id)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    ''', (place_id, name, session["start_lat"], session["start_lng"], now_str, couple_id))
                     
                     response_msg = f"Place auto-tagged via Kakao API after {time_diff:.1f}s!"
                     place_tagged = {
@@ -99,21 +99,21 @@ async def update_location(data: LocationData):
     return {"status": "ok", "message": response_msg, "place_tagged": place_tagged}
 
 @router.delete("/places/{place_id}")
-def delete_place(place_id: str):
+def delete_place(place_id: str, couple_id: str):
     conn = database.get_db()
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM places WHERE id = ?", (place_id,))
+    cursor.execute("DELETE FROM places WHERE id = ? AND couple_id = ?", (place_id, couple_id))
     conn.commit()
     conn.close()
     return {"status": "ok", "message": "Place deleted."}
 
 @router.get("/timeline")
-def get_timeline():
+def get_timeline(couple_id: str):
     """Returns successfully tagged places, ordered by newest first."""
     conn = database.get_db()
     cursor = conn.cursor()
     
-    cursor.execute("SELECT * FROM places ORDER BY timestamp DESC")
+    cursor.execute("SELECT * FROM places WHERE couple_id = ? ORDER BY timestamp DESC", (couple_id,))
     places = cursor.fetchall()
     
     conn.close()
