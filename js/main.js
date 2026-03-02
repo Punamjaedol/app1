@@ -5,6 +5,7 @@ lucide.createIcons();
 
 // --- STATE MANAGEMENT ---
 let currentUser = JSON.parse(localStorage.getItem('currentUser')) || null;
+let pendingLinkedPlaceId = null;
 
 let appState = {
     places: [], // { id, name, address, timestamp }
@@ -128,7 +129,7 @@ function switchView(viewName) {
 function renderTimeline() {
     const container = document.getElementById('timeline-list');
     if (appState.places.length === 0) {
-        container.innerHTML = '<p class="text-muted text-sm mt-2">No places automatically tagged yet. Stay in one place for 10 seconds to generate a record!</p>';
+        container.innerHTML = '<p class="text-muted text-sm mt-2">No places automatically tagged yet. Stay in one place for 3 minutes to generate a record!</p>';
         return;
     }
 
@@ -230,7 +231,7 @@ function renderSchedules() {
     const inlineList = document.getElementById('schedule-list');
     const daySchedules = appState.schedules[selectedDateStr] || [];
 
-    const emptyHtml = '<p class="empty-state" style="color: var(--text-muted); font-size: 14px; text-align: center; padding: 20px 0;">No schedules for this day.</p>';
+    const emptyHtml = '<p class="empty-state" style="color: var(--text-muted); font-size: 14px; text-align: center; padding: 20px 0;">일정이 없습니다.</p>';
 
     if (daySchedules.length === 0) {
         if (inlineList) inlineList.innerHTML = emptyHtml;
@@ -239,15 +240,21 @@ function renderSchedules() {
             let placeHtml = '';
             if (s.placeId) {
                 const place = appState.places.find(p => p.id === s.placeId);
-                const placeName = place ? place.name : "Saved Place";
+                const placeName = place ? place.name : "저장된 장소";
                 placeHtml = `<div style="font-size: 11px; color: var(--primary-color); display: flex; align-items: center; gap: 4px; margin-top: 2px;"><i data-lucide="map-pin" style="width:10px; height:10px;"></i> ${placeName}</div>`;
+            }
+
+            let descHtml = '';
+            if (s.description) {
+                descHtml = `<div style="font-size: 12px; color: var(--text-muted); margin-top: 4px; white-space: pre-wrap;">${s.description}</div>`;
             }
 
             return `
                 <div class="modal-schedule-item">
                     <div style="flex: 1;">
                         <div style="font-weight: 600; font-size: 15px;">${s.title}</div>
-                        <div style="font-size: 12px; color: var(--text-muted);">${s.time || 'All day'}</div>
+                        <div style="font-size: 12px; color: var(--text-muted);">${s.time || '종일'}</div>
+                        ${descHtml}
                         ${placeHtml}
                     </div>
                     <div class="schedule-actions">
@@ -287,8 +294,10 @@ function showAddForm(openModalFlag = false) {
 function resetForm() {
     document.getElementById('edit-schedule-id').value = '';
     document.getElementById('schedule-title').value = '';
+    document.getElementById('schedule-description').value = '';
     document.getElementById('schedule-time').value = '';
-    document.getElementById('linked-place').textContent = 'None linked';
+    document.getElementById('linked-place').textContent = '연결된 장소 없음';
+    document.getElementById('schedule-annual').checked = false;
     pendingLinkedPlaceId = null;
 }
 
@@ -298,14 +307,16 @@ function editSchedule(scheduleId) {
 
     document.getElementById('edit-schedule-id').value = s.id;
     document.getElementById('schedule-title').value = s.title;
+    document.getElementById('schedule-description').value = s.description || '';
     document.getElementById('schedule-time').value = s.time || '';
+    document.getElementById('schedule-annual').checked = s.isAnnual || false;
 
     if (s.placeId) {
         const place = appState.places.find(p => p.id === s.placeId);
-        document.getElementById('linked-place').textContent = place ? place.name : 'Linked Place';
+        document.getElementById('linked-place').textContent = place ? place.name : '연결된 장소';
         pendingLinkedPlaceId = s.placeId;
     } else {
-        document.getElementById('linked-place').textContent = 'None linked';
+        document.getElementById('linked-place').textContent = '연결된 장소 없음';
         pendingLinkedPlaceId = null;
     }
 
@@ -316,10 +327,12 @@ async function saveSchedule() {
     if (!currentUser) return;
     const scheduleId = document.getElementById('edit-schedule-id').value;
     const title = document.getElementById('schedule-title').value;
+    const description = document.getElementById('schedule-description').value;
     const time = document.getElementById('schedule-time').value;
+    const isAnnual = document.getElementById('schedule-annual').checked;
 
     if (!title) {
-        alert('Please enter a schedule title.');
+        alert('일정 제목을 입력해 주세요.');
         return;
     }
 
@@ -327,7 +340,9 @@ async function saveSchedule() {
         date: selectedDateStr,
         title,
         time,
-        placeId: pendingLinkedPlaceId
+        placeId: pendingLinkedPlaceId,
+        description,
+        isAnnual
     };
 
     try {
@@ -469,25 +484,70 @@ function toggleDateEdit() {
 }
 
 async function saveStartDate() {
+    console.log("saveStartDate called");
     const newDate = document.getElementById('new-start-date').value;
     if (!newDate) {
         alert("날짜를 선택해 주세요.");
         return;
     }
 
+    if (!currentUser || !currentUser.couple_id) {
+        alert("로그인 정보가 없습니다. 다시 로그인 해주세요.");
+        return;
+    }
+
+    // Clear stale schedule state so the calendar refreshes cleanly
+    appState.schedules = {};
+
     try {
-        const res = await fetch(`${API_BASE_URL}/couple/info?couple_id=${currentUser.couple_id}`, {
+        console.log("Saving start date:", newDate);
+        // 1. Save Start Date
+        const resInfo = await fetch(`${API_BASE_URL}/couple/info?couple_id=${currentUser.couple_id}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ start_date: newDate })
         });
 
-        if (res.ok) {
+        if (!resInfo.ok) {
+            const errorText = await resInfo.text();
+            console.error("Save info failed:", errorText);
+            alert("시작일 저장 중 오류가 발생했습니다: " + errorText);
+            return;
+        }
+
+        console.log("Start date saved, generating anniversaries...");
+        // 2. Generate Anniversaries
+        const resAnniv = await fetch(`${API_BASE_URL}/anniversary?couple_id=${currentUser.couple_id}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ start_date: newDate })
+        });
+
+        if (resAnniv.ok) {
+            console.log("Anniversaries generated successfully.");
+            alert("변경이 완료되었습니다.");
+
+            // 3. UI Update (Refresh all relevant data)
             updateAnniversaryDisplay(newDate);
             toggleDateEdit();
+
+            // Re-fetch all to ensure sync
+            if (typeof fetchTimeline === 'function') fetchTimeline();
+            if (typeof fetchCoupleInfo === 'function') fetchCoupleInfo();
+
+            // If in calendar view, refresh it
+            const calendarView = document.getElementById('view-calendar');
+            if (calendarView && !calendarView.classList.contains('hidden')) {
+                renderCalendar();
+            }
+        } else {
+            const errorText = await resAnniv.text();
+            console.error("Anniversary generation failed:", errorText);
+            alert("기념일 생성 중 오류가 발생했습니다: " + errorText);
         }
     } catch (err) {
-        console.error("Failed to save start date", err);
+        console.error("Critical error in saveStartDate:", err);
+        alert("서버 연결에 실패했습니다. (네트워크 오류)");
     }
 }
 
@@ -496,6 +556,8 @@ let kakaoMarker = null;
 
 function initMapWithLocation(lat, lng) {
     const container = document.getElementById('kakao-map');
+    if (!container) return;
+
     const options = {
         center: new kakao.maps.LatLng(lat, lng),
         level: 3
@@ -511,5 +573,68 @@ function initMapWithLocation(lat, lng) {
         const newPos = new kakao.maps.LatLng(lat, lng);
         kakaoMap.setCenter(newPos);
         kakaoMarker.setPosition(newPos);
+    }
+}
+
+// --- PROFILE MODAL ---
+async function openProfileModal(who = 'me') {
+    if (!currentUser) return;
+
+    document.getElementById('profile-modal-overlay').classList.remove('hidden');
+    lucide.createIcons();
+
+    try {
+        const res = await fetch(`${API_BASE_URL}/couple/profile?couple_id=${currentUser.couple_id}&username=${currentUser.username}`);
+        if (!res.ok) return;
+        const data = await res.json();
+
+        let person, avatarId, title;
+        if (who === 'partner' && data.partner) {
+            person = data.partner;
+            avatarId = 'avatar-2';
+            title = '짝 프로필';
+        } else {
+            person = data.me;
+            avatarId = 'avatar-1';
+            title = '내 프로필';
+        }
+
+        document.getElementById('profile-modal-title').textContent = title;
+        const avatarEl = document.getElementById(avatarId);
+        document.getElementById('profile-avatar').src = avatarEl ? avatarEl.src : '';
+        document.getElementById('profile-name').textContent = person.name || person.username;
+        document.getElementById('profile-username').textContent = `@${person.username}`;
+        document.getElementById('profile-birthday').textContent = person.birthday ? `🎂 ${person.birthday.replace(/-/g, '.')}` : '';
+    } catch (err) {
+        console.error("Failed to fetch profile:", err);
+    }
+}
+
+function closeProfileModal() {
+    document.getElementById('profile-modal-overlay').classList.add('hidden');
+}
+
+async function saveProfile() {
+    if (!currentUser) return;
+
+    const name = document.getElementById('profile-me-name').value;
+    const birthday = document.getElementById('profile-me-birthday').value;
+
+    try {
+        const res = await fetch(`${API_BASE_URL}/couple/profile?couple_id=${currentUser.couple_id}&username=${currentUser.username}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, birthday })
+        });
+
+        if (res.ok) {
+            alert('프로필이 저장되었습니다.');
+            closeProfileModal();
+        } else {
+            alert('프로필 저장에 실패했습니다.');
+        }
+    } catch (err) {
+        console.error("Failed to save profile:", err);
+        alert('서버 연결에 실패했습니다.');
     }
 }

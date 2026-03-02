@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import math
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -63,16 +63,17 @@ async def update_location(data: LocationData, couple_id: str):
             
             response_msg = f"User moved {dist:.1f}m. Tracking reset."
         else:
-            if time_diff >= 10:
+            if time_diff >= 180: # Changed from 10s to 180s (3 minutes)
                 name, addr = await reverse_geocode_kakao(session["start_lat"], session["start_lng"])
                 
+                # Duplicate prevention: Check if the last recorded place has the same name
                 cursor.execute("SELECT name FROM places WHERE couple_id = ? ORDER BY timestamp DESC LIMIT 1", (couple_id,))
                 last_place = cursor.fetchone()
                 
                 cursor.execute("UPDATE tracking_sessions SET is_active = 0 WHERE id = ?", (session["id"],))
                 
                 if last_place and last_place["name"] == name:
-                    response_msg = f"Stayed >10s, but ignored duplicate place: {name}"
+                    response_msg = f"Stayed >3m, but ignored duplicate place: {name}"
                 else:
                     place_id = "p" + str(uuid.uuid4())[:8]
                     cursor.execute('''
@@ -91,7 +92,7 @@ async def update_location(data: LocationData, couple_id: str):
                     }
             else:
                 cursor.execute("UPDATE tracking_sessions SET last_update_time = ? WHERE id = ?", (now_str, session["id"]))
-                response_msg = f"User staying. Time elapsed: {time_diff:.1f}s (needs 10s)"
+                response_msg = f"User staying. Time elapsed: {time_diff:.1f}s (needs 180s)"
     
     conn.commit()
     conn.close()

@@ -30,6 +30,8 @@ def init_db():
         couple_id TEXT NOT NULL
     )
     ''')
+    add_column_if_missing("users", "name", "TEXT DEFAULT ''")
+    add_column_if_missing("users", "birthday", "TEXT DEFAULT ''")
     
     # Places table
     cursor.execute('''
@@ -54,6 +56,8 @@ def init_db():
     )
     ''')
     add_column_if_missing("schedules", "couple_id", "TEXT NOT NULL DEFAULT 'default_couple'")
+    add_column_if_missing("schedules", "description", "TEXT DEFAULT ''")
+    add_column_if_missing("schedules", "is_annual", "INTEGER DEFAULT 0")
     
     # Tracking Sessions table
     cursor.execute('''
@@ -94,22 +98,41 @@ def seed_users():
         couple_id = str(uuid.uuid4())
         # Create user1
         cursor.execute('''
-            INSERT INTO users (id, username, password, couple_id)
-            VALUES (?, ?, ?, ?)
-        ''', (str(uuid.uuid4()), 'user1', '20240206', couple_id))
+            INSERT INTO users (id, username, password, couple_id, name, birthday)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (str(uuid.uuid4()), 'user1', '20240206', couple_id, 'USER1', '1997-02-25'))
         
         # Create user2
         cursor.execute('''
-            INSERT INTO users (id, username, password, couple_id)
-            VALUES (?, ?, ?, ?)
-        ''', (str(uuid.uuid4()), 'user2', '20240206', couple_id))
+            INSERT INTO users (id, username, password, couple_id, name, birthday)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (str(uuid.uuid4()), 'user2', '20240206', couple_id, 'USER2', '1997-02-18'))
         
-        # Update existing data to this couple_id
-        cursor.execute("UPDATE places SET couple_id = ? WHERE couple_id = 'default_couple'", (couple_id,))
-        cursor.execute("UPDATE schedules SET couple_id = ? WHERE couple_id = 'default_couple'", (couple_id,))
-        cursor.execute("UPDATE tracking_sessions SET couple_id = ? WHERE couple_id = 'default_couple'", (couple_id,))
+        # Seed couple_info
+        cursor.execute('''
+            INSERT INTO couple_info (couple_id, start_date)
+            VALUES (?, ?)
+        ''', (couple_id, '2024-02-06'))
         
-        print("Seeded user1, user2 and updated existing data.")
+        print("Seeded user1, user2, couple_info and updated existing data.")
+    else:
+        # Update existing users with names/birthdays if missing
+        cursor.execute("UPDATE users SET name = 'USER2', birthday = '1997-02-18' WHERE username = 'user2' AND (name IS NULL OR name = '')")
+        
+        # Ensure couple_info exists for existing test couple
+        cursor.execute("SELECT couple_id FROM users WHERE username = 'user1'")
+        row = cursor.fetchone()
+        if row:
+            cursor.execute("INSERT OR IGNORE INTO couple_info (couple_id, start_date) VALUES (?, ?)", (row["couple_id"], '2024-02-06'))
+    
+    # Cleanup redundant data (now calculated dynamically)
+    # 1. Delete old birthday schedules
+    cursor.execute("DELETE FROM schedules WHERE title LIKE '%생일 🎂'")
+    # 2. Delete old anniversary schedules (e.g., 1주년, 2주년)
+    cursor.execute("DELETE FROM schedules WHERE title LIKE '%주년!'")
+    
+    # Unify "All Day" to "종일" (already handled by dynamic injection but good for existing custom ones)
+    cursor.execute("UPDATE schedules SET time = '종일' WHERE time = 'All Day'")
     
     conn.commit()
     conn.close()

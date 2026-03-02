@@ -40,9 +40,10 @@
                 <div class="header-profile" style="display: flex; align-items: center; gap: 8px;">
                     <div class="avatars-group"
                         style="display: flex; -webkit-mask-image: linear-gradient(to right, black 80%, transparent 100%); mask-image: linear-gradient(to right, black 80%, transparent 100%);">
-                        <img src="" alt="User 1" class="avatar" id="avatar-1"
-                            style="margin-right: -10px; position: relative; z-index: 2;">
-                        <img src="" alt="User 2" class="avatar" id="avatar-2" style="position: relative; z-index: 1;">
+                        <img src="" alt="User 1" class="avatar" id="avatar-1" onclick="openProfileModal('me')"
+                            style="margin-right: -10px; position: relative; z-index: 2; cursor: pointer;">
+                        <img src="" alt="User 2" class="avatar" id="avatar-2" onclick="openProfileModal('partner')"
+                            style="position: relative; z-index: 1; cursor: pointer;">
                     </div>
                     <button onclick="logout()" class="logout-btn" title="Logout">
                         <i data-lucide="log-out" style="width: 18px; height: 18px;"></i>
@@ -63,7 +64,7 @@
                     <h2>Live Tracking</h2>
                     <p id="gps-status-text" class="mt-3 text-muted" style="font-size: 14px;">Initializing GPS...</p>
                     <div style="font-size: 12px; margin-top: 8px; color: var(--text-muted);">
-                        * The app automatically tags a place if you stay within 50m for more than 10 seconds.
+                        * The app automatically tags a place if you stay within 50m for more than 3 minutes.
                     </div>
                 </div>
 
@@ -92,10 +93,10 @@
                     <h3 id="selected-date-title">Select a date</h3>
                     <div id="schedule-list" class="schedule-list mt-3">
                         <!-- Inline schedule list -->
-                        <p class="empty-state">No schedules for this day.</p>
+                        <p class="empty-state">일정이 없습니다.</p>
                     </div>
                     <button class="primary-btn mt-4 w-full" onclick="showAddForm(true)">
-                        <i data-lucide="plus"></i> Add Schedule
+                        <i data-lucide="plus"></i> 일정 추가
                     </button>
                 </div>
             </section>
@@ -114,25 +115,58 @@
                     <div class="modal-body">
                         <input type="hidden" id="edit-schedule-id">
                         <div class="form-group">
-                            <label style="font-size: 13px; color: var(--text-muted);">Title</label>
-                            <input type="text" id="schedule-title" placeholder="What are you doing?">
+                            <label style="font-size: 13px; color: var(--text-muted);">제목</label>
+                            <input type="text" id="schedule-title" placeholder="제목을 입력하세요">
                         </div>
                         <div class="form-group mt-3">
-                            <label style="font-size: 13px; color: var(--text-muted);">Time</label>
+                            <label style="font-size: 13px; color: var(--text-muted);">내용</label>
+                            <textarea id="schedule-description" placeholder="상세 내용을 입력하세요" rows="3"
+                                style="width: 100%; resize: vertical; padding: 10px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.1); font-family: inherit; font-size: 14px;"></textarea>
+                        </div>
+                        <div class="form-group mt-3">
+                            <label style="font-size: 13px; color: var(--text-muted);">시간</label>
                             <input type="time" id="schedule-time">
                         </div>
                         <div class="form-group mt-3">
-                            <label style="font-size: 13px; color: var(--text-muted);">Memory</label>
+                            <label style="font-size: 13px; color: var(--text-muted);">장소 연결</label>
                             <div style="display: flex; gap: 8px; align-items: center;">
-                                <div id="linked-place" style="flex: 1; font-size: 14px; color: var(--text-muted);">None
-                                    linked</div>
-                                <button class="text-btn" onclick="linkPlace()">Link Recent</button>
+                                <div id="linked-place" style="flex: 1; font-size: 14px; color: var(--text-muted);">연결된
+                                    장소 없음</div>
+                                <button class="text-btn" onclick="linkPlace()">최근 장소 연결</button>
                             </div>
+                        </div>
+                        <div class="form-group mt-3">
+                            <label
+                                style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px;">
+                                <input type="checkbox" id="schedule-annual"
+                                    style="width: 18px; height: 18px; accent-color: var(--primary-color);">
+                                <span>매년 반복</span>
+                            </label>
                         </div>
                     </div>
                     <div class="modal-footer mt-4">
-                        <button class="primary-btn w-full" onclick="saveSchedule()">Save Schedule</button>
+                        <button class="primary-btn w-full" onclick="saveSchedule()">일정 저장</button>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Profile Modal -->
+        <div id="profile-modal-overlay" class="modal-overlay hidden"
+            onclick="if(event.target===this)closeProfileModal()">
+            <div class="glass-card modal" style="max-width: 300px; padding: 20px;">
+                <div class="modal-header" style="margin-bottom: 12px;">
+                    <h3 style="font-size: 16px;" id="profile-modal-title">프로필</h3>
+                    <button class="icon-btn" onclick="closeProfileModal()"><i data-lucide="x"></i></button>
+                </div>
+                <div
+                    style="background: linear-gradient(135deg, rgba(255,107,107,0.1), rgba(78,205,196,0.1)); border-radius: 14px; padding: 14px; text-align: center;">
+                    <img id="profile-avatar" src=""
+                        style="width: 48px; height: 48px; border-radius: 50%; border: 2px solid var(--primary-color); margin-bottom: 8px;">
+                    <div id="profile-name" style="font-size: 16px; font-weight: 700; margin-bottom: 4px;"></div>
+                    <div id="profile-username" style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">
+                        @username</div>
+                    <div id="profile-birthday" style="font-size: 13px;"></div>
                 </div>
             </div>
         </div>
